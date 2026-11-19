@@ -114,6 +114,13 @@ keylease-core/
 | `get_admin()`, `get_token()`, `get_service(id)`, `get_lease(id)`, `version()` | — | Read-only views. |
 | `lease_status(id)`, `remaining_calls(id)`, `locked_balance(id)` | — | Derived lifecycle queries. |
 | `service_count()`, `lease_count()` | — | Monotonic counters. |
+| `propose_admin(admin, new_admin)` | `admin` | Propose admin handover; new proposal replaces any pending one. Emits `admin_transfer_proposed`. |
+| `accept_admin(new_admin)` | `new_admin` | Accept pending admin handover. Emits `admin_transfer_accepted`. |
+| `cancel_admin_transfer(admin)` | `admin` | Cancel pending admin handover. Emits `admin_transfer_cancelled`. |
+| `get_pending_admin()` | — | View: returns pending admin, if any. |
+| `migrate(admin, to_version)` | `admin` | Migrate storage schema version. Admin only. Emits `schema_migrated`. |
+| `schema_version()` | — | View: returns current storage schema version. |
+
 
 ### Events
 
@@ -130,6 +137,10 @@ extra. Event names are the first topic; ids follow.
 | `lease_settled` | `lease_id` | `provider`, `verified_calls`, `payout`, `refund` |
 | `lease_revoked` | `lease_id` | `consumer`, `refund` |
 | `contract_upgraded` | — | `admin`, `new_wasm_hash` |
+| `admin_transfer_proposed` | — | `admin`, `new_admin`, `expires_at` |
+| `admin_transfer_accepted` | — | `previous_admin`, `new_admin` |
+| `admin_transfer_cancelled` | — | `admin`, `new_admin` |
+| `schema_migrated` | — | `admin`, `from_version`, `to_version` |
 
 ```bash
 # Follow escrow from the ledger, no polling:

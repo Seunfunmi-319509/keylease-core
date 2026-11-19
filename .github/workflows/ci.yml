@@ -32,14 +32,54 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    # Uploading the SARIF report is the only reason this job needs write access.
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Install SARIF converter
+        run: cargo install clippy-sarif --locked
+      # Generate the code-scanning report first, remember clippy's real exit
+      # status, then upload it and fail the job on the status below. The cargo
+      # invocation is the same one the gate uses, so the SARIF and the check can
+      # never disagree.
+      - name: cargo clippy (SARIF)
+        run: |
+          set -o pipefail
+          status=0
+          cargo clippy --all-targets --message-format=json -- -D warnings \
+            | clippy-sarif > clippy.sarif || status=$?
+          echo "CLIPPY_STATUS=$status" >> "$GITHUB_ENV"
+          exit 0
+      - name: Upload clippy SARIF
+        # Fork pull requests get a read-only token, so there is nothing to
+        # upload; still run for pushes, same-repo PRs and manual dispatches.
+        if: always() && hashFiles('clippy.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: clippy.sarif
+          category: clippy
+      - name: Fail on clippy warnings
+        run: exit "${CLIPPY_STATUS:-1}"
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `#![warn(missing_docs)]` is a rustdoc-visible lint, so this build is
+      # what actually enforces documentation on public items.
+      - name: cargo doc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --all --no-deps
 
   test:
     name: Test
@@ -73,6 +113,36 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  audit:
+    name: Advisory Scan
+    runs-on: ubuntu-latest
+    # Same minimal grant as Clippy: read the checkout, write code-scanning data.
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # cargo-audit emits SARIF natively. Capture the advisory result, upload
+      # it, then fail the job if advisories were found.
+      - name: Run advisory scan (SARIF)
+        run: |
+          status=0
+          cargo audit --format sarif > cargo-audit.sarif || status=$?
+          echo "AUDIT_STATUS=$status" >> "$GITHUB_ENV"
+          exit 0
+      - name: Upload advisory SARIF
+        if: always() && hashFiles('cargo-audit.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: cargo-audit.sarif
+          category: cargo-audit
+      - name: Fail on advisories
+        run: exit "${AUDIT_STATUS:-1}"
 
   malware-scan:
     name: Malware Scan

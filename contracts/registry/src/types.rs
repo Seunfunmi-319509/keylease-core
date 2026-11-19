@@ -54,6 +54,21 @@ pub enum LeaseStatus {
     Settled = 2,
 }
 
+/// A proposed admin handover awaiting acceptance by the new admin.
+///
+/// Proposals are stored in instance storage and expire after
+/// [`crate::ADMIN_TRANSFER_EXPIRY_SECS`] so a forgotten handover cannot be
+/// accepted indefinitely. The current admin remains in control until the new
+/// admin accepts with its own authorization.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAdmin {
+    /// Address that must authorize `accept_admin`.
+    pub new_admin: Address,
+    /// Ledger timestamp after which the proposal is stale and rejected.
+    pub expires_at: u64,
+}
+
 impl LeaseStatus {
     /// Derive the current status of `lease` at ledger time `now`.
     pub fn of(lease: &Lease, now: u64) -> Self {

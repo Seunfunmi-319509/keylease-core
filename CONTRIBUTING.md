@@ -84,6 +84,7 @@ verify leases.
   recoverable conditions.
 - **Don't reuse error codes.** Append new variants; codes are part of the ABI.
 - Keep `lib.rs` entry points documented, including their auth and preconditions.
+- `#![warn(missing_docs)]` is set for the contract crates; new items must be documented or exempted with `#[allow(missing_docs)]` (see library doc build requirements).
 
 ## Adding a new entry point
 
@@ -147,6 +148,16 @@ token transfers and cover it with an adversarial test.
 Please **do not** open a public issue for a security vulnerability. See
 [SECURITY.md](./SECURITY.md) for private reporting and scope, or email
 `security@keylease.dev` with a description and reproduction steps.
+
+## Code scanning
+
+SARIF results from clippy and cargo-audit are uploaded as code-scanning alerts
+in the `clippy` and `cargo-audit` analysis branches. Maintainers can view results
+at:
+- <https://github.com/KeyLease-Security/keylease-core/code scanning>
+- The GitHub Actions `clippy` and `cargo-audit` job outputs.
+
+The SARIF uploads skip fork PRs (read-only token).
 
 ## License
 

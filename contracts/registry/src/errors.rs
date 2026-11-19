@@ -40,4 +40,18 @@ pub enum Error {
     /// Lease duration exceeds `MAX_LEASE_DURATION_SECS`, so its storage entry
     /// could not be kept alive for the whole term.
     DurationTooLong = 16,
+    /// `accept_admin` or `cancel_admin_transfer` was called with no proposal
+    /// outstanding.
+    AdminTransferNotPending = 17,
+    /// The pending admin proposal is older than `ADMIN_TRANSFER_EXPIRY_SECS`
+    /// and was discarded; propose the transfer again.
+    AdminTransferExpired = 18,
+    /// The proposed admin is already the current admin, which is a no-op.
+    AdminUnchanged = 19,
+    /// The proposed schema is older than this Wasm's schema; the admin must call
+    /// `migrate` before any other mutation is accepted.
+    SchemaMigrationRequired = 20,
+    /// The stored schema is newer than this Wasm, or a migration targeted a
+    /// version this Wasm does not implement. Refusing is the only safe answer.
+    SchemaVersionUnsupported = 21,
 }

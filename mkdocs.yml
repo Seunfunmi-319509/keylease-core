@@ -64,6 +64,8 @@ nav:
       - How the protocol works: protocol.md
       - Contract reference: contract-reference.md
       - Security model: security.md
+      - Admin transfer: design/admin-transfer.md
+      - Storage schema: design/storage-schema.md
   - Stellar:
       - Networks: networks.md
       - Integration: integration.md

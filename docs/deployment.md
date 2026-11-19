@@ -148,6 +148,25 @@ semantics. See [Security](security.md#known-limitations).
 3. **Subscribe to events**, or read `get_lease` on demand — see
    [Integration](integration.md).
 
+## Schema migration after upgrade
+
+If the deployed Wasm has schema version `1` but the stored version is `0` (legacy
+or pre-schema-versioning deployment), the admin must run the migration procedure:
+
+```bash
+# 1. confirm current schema version
+stellar contract invoke --id $REGISTRY --source-account admin --network testnet -- schema_version
+
+# 2. migrate the schema (admin only)
+stellar contract invoke --id $REGISTRY --source-account admin --network testnet -- migrate --to_version 1
+
+# 3. verify migration succeeded
+stellar contract invoke --id $REGISTRY --source-account admin --network testnet -- schema_version
+
+# 4. now all entry points work normally
+stellar contract invoke --id $REGISTRY --source-account admin --network testnet -- version
+```
+
 ## Networks
 
 Testnet, Futurenet, Mainnet and local standalone differ only in RPC endpoint and

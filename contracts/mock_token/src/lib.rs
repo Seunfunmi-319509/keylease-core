@@ -1,4 +1,5 @@
 #![no_std]
+#![warn(missing_docs)]
 
 //! # KeyLease Mock Token
 //!
@@ -16,12 +17,20 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
+    /// Address allowed to mint (instance storage).
     Admin,
+    /// Number of decimals reported by the token (instance storage).
     Decimals,
+    /// Human-readable token name (instance storage).
     Name,
+    /// Ticker symbol (instance storage).
     Symbol,
+    /// Token balance of an account (persistent storage).
     Balance(Address),
+    /// Amount `spender` may draw from `owner` (persistent storage).
     Allowance(Address, Address),
+    /// Ledger sequence at which an allowance expires; `0` never expires
+    /// (persistent storage).
     AllowanceExpiry(Address, Address),
 }
 
@@ -44,6 +53,7 @@ pub enum TokenError {
     Unauthorized = 6,
 }
 
+/// Test-only SEP-41 token with an unrestricted admin mint.
 #[contract]
 pub struct MockToken;
 

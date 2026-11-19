@@ -92,6 +92,24 @@ These are real and tracked as Drips Wave issues rather than hidden.
   non-delivery.
 - **Not audited.** Do not escrow mainnet value you would be unhappy to lose.
 
+## Admin transfer
+
+- The two-step admin transfer (propose/accept/cancel) prevents accidental or
+  compromised proposals from silently moving control of the contract. The current
+  admin remains in control until the new admin explicitly accepts with its own
+  authorization. Proposals expire after 7 days (`ADMIN_TRANSFER_EXPIRY_SECS`).
+- The current admin can always cancel a live proposal.
+- Expired proposals are discarded and cannot be accepted.
+- A new proposal always replaces any still-pending proposal.
+
+## Storage schema
+
+- Schema versioning ensures storage layout evolves safely. Deployments before
+  schema versioning (schema 0) must call `migrate(1)` after upgrading to this Wasm.
+- Until migration, only `init`, `set_token`, and `upgrade` are permitted.
+- `migrate` is the only mutation allowed while the stored schema does not match.
+- Incompatible schemas are rejected to prevent older code from misreading data.
+
 ## Deployment hygiene
 
 - Only trust contract ids in [`docs/deployments.md`](deployments.md).

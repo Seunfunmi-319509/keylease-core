@@ -61,10 +61,11 @@ use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String};
 
 pub use crate::errors::Error;
 pub use crate::events::{
-    ContractUpgraded, EscrowTokenSet, LeaseCreated, LeaseRevoked, LeaseSettled,
-    RegistryInitialized, ServiceRegistered, ServiceStatusChanged,
+    AdminTransferAccepted, AdminTransferCancelled, AdminTransferProposed, ContractUpgraded,
+    EscrowTokenSet, LeaseCreated, LeaseRevoked, LeaseSettled, RegistryInitialized, SchemaMigrated,
+    ServiceRegistered, ServiceStatusChanged,
 };
-pub use crate::types::{Lease, LeaseStatus, Service};
+pub use crate::types::{Lease, LeaseStatus, PendingAdmin, Service};
 
 // On-chain contract metadata, readable from the ledger without the source.
 soroban_sdk::contractmeta!(key = "name", val = "KeyLeaseRegistry");
@@ -90,6 +91,18 @@ pub const SETTLE_GRACE_PERIOD_SECS: u64 = 24 * 60 * 60;
 /// is well under the network's maximum entry TTL (180 days on Testnet).
 pub const MAX_LEASE_DURATION_SECS: u64 = 30 * 24 * 60 * 60;
 
+pub const ADMIN_TRANSFER_EXPIRY_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Version of the on-chain storage layout this Wasm expects.
+/// Bump this whenever a DataKey variant or a stored value's shape or meaning
+/// changes. Every state-changing entry point refuses to run when the stored
+/// version differs, until the admin calls [KeyLeaseRegistry::migrate].
+pub const STORAGE_SCHEMA_VERSION: u32 = 1;
+
+/// Deployments created before schema versioning have no stored version; they
+/// are treated as schema 0 and must migrate once after upgrading to this Wasm.
+const LEGACY_SCHEMA_VERSION: u32 = 0;
+
 #[contract]
 pub struct KeyLeaseRegistry;
 
@@ -110,6 +123,7 @@ impl KeyLeaseRegistry {
             return Err(Error::AlreadyInitialized);
         }
         storage::set_admin(&env, &admin);
+        storage::set_schema_version(&env, STORAGE_SCHEMA_VERSION);
         storage::extend_instance_ttl(&env);
         RegistryInitialized {
             admin: admin.clone(),
@@ -149,6 +163,94 @@ impl KeyLeaseRegistry {
         ContractUpgraded {
             admin: admin.clone(),
             new_wasm_hash,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Propose handing the admin role to `new_admin`. Admin only.
+    ///
+    /// The handover only completes when `new_admin` calls [`Self::accept_admin`]
+    /// and authorizes with its own key, so a typo or a compromised proposal can
+    /// never silently move control of the contract. A new proposal replaces any
+    /// proposal still pending.
+    pub fn propose_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+        require_schema(&env)?;
+        if new_admin == admin {
+            return Err(Error::AdminUnchanged);
+        }
+
+        let expires_at = env
+            .ledger()
+            .timestamp()
+            .checked_add(ADMIN_TRANSFER_EXPIRY_SECS)
+            .ok_or(Error::Overflow)?;
+        storage::set_pending_admin(
+            &env,
+            &PendingAdmin {
+                new_admin: new_admin.clone(),
+                expires_at,
+            },
+        );
+        storage::extend_instance_ttl(&env);
+
+        AdminTransferProposed {
+            admin,
+            new_admin,
+            expires_at,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Accept a pending admin handover. Requires auth from `new_admin`.
+    ///
+    /// The proposal must exist, must name `new_admin`, and must not have expired.
+    /// An expired proposal is discarded and cannot be accepted.
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        new_admin.require_auth();
+        require_schema(&env)?;
+
+        let pending = storage::get_pending_admin(&env).ok_or(Error::AdminTransferNotPending)?;
+        if pending.new_admin != new_admin {
+            return Err(Error::Unauthorized);
+        }
+        if env.ledger().timestamp() > pending.expires_at {
+            storage::clear_pending_admin(&env);
+            return Err(Error::AdminTransferExpired);
+        }
+
+        let previous_admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        storage::set_admin(&env, &new_admin);
+        storage::clear_pending_admin(&env);
+        storage::extend_instance_ttl(&env);
+
+        AdminTransferAccepted {
+            previous_admin,
+            new_admin,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Withdraw the pending admin handover. Admin only.
+    ///
+    /// The current admin keeps the role, and the proposed address can no longer
+    /// accept.
+    pub fn cancel_admin_transfer(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+        require_schema(&env)?;
+
+        let pending = storage::get_pending_admin(&env).ok_or(Error::AdminTransferNotPending)?;
+        storage::clear_pending_admin(&env);
+        storage::extend_instance_ttl(&env);
+
+        AdminTransferCancelled {
+            admin,
+            new_admin: pending.new_admin,
         }
         .publish(&env);
         Ok(())
@@ -465,6 +567,19 @@ impl KeyLeaseRegistry {
         String::from_str(&env, env!("CARGO_PKG_VERSION"))
     }
 
+    /// Storage schema version recorded on this deployment.
+    ///
+    /// `0` means the deployment predates schema versioning, or has not been
+    /// initialized yet.
+    pub fn schema_version(env: Env) -> u32 {
+        storage::get_schema_version(&env).unwrap_or(LEGACY_SCHEMA_VERSION)
+    }
+
+    /// The pending admin handover, if one has been proposed.
+    pub fn get_pending_admin(env: Env) -> Option<PendingAdmin> {
+        storage::get_pending_admin(&env)
+    }
+
     /// Total number of services registered.
     pub fn service_count(env: Env) -> u64 {
         storage::service_count(&env)
@@ -518,4 +633,22 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
         return Err(Error::Unauthorized);
     }
     Ok(())
+}
+
+/// Ensure the stored storage schema is the one this Wasm understands.
+/// An uninitialized registry has no stored schema yet, so initialization is
+/// still allowed. Once initialized, a missing version means a legacy (schema
+/// 0) deployment that must be migrated explicitly.
+fn require_schema(env: &Env) -> Result<(), Error> {
+    if !storage::is_initialized(env) {
+        return Ok(());
+    }
+    let stored = storage::get_schema_version(env).unwrap_or(LEGACY_SCHEMA_VERSION);
+    if stored == STORAGE_SCHEMA_VERSION {
+        return Ok(());
+    }
+    if stored < STORAGE_SCHEMA_VERSION {
+        return Err(Error::SchemaMigrationRequired);
+    }
+    Err(Error::SchemaVersionUnsupported)
 }

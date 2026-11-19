@@ -119,3 +119,50 @@ pub struct ContractUpgraded {
     /// Hash of the new Wasm installed by the Soroban deployer.
     pub new_wasm_hash: BytesN<32>,
 }
+
+/// Emitted when the current admin proposes a handover to new_admin.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferProposed {
+    /// Admin that proposed the transfer.
+    pub admin: Address,
+    /// Address that may accept the transfer.
+    #[topic]
+    pub new_admin: Address,
+    /// Ledger timestamp after which the proposal is stale.
+    pub expires_at: u64,
+}
+
+/// Emitted when the proposed admin accepts the handover and becomes admin.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferAccepted {
+    /// Admin that held the role before the handover.
+    pub previous_admin: Address,
+    /// Address that accepted and now administers the registry.
+    #[topic]
+    pub new_admin: Address,
+}
+
+/// Emitted when the current admin withdraws a pending handover.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferCancelled {
+    /// Admin that cancelled the proposal.
+    pub admin: Address,
+    /// Address that can no longer accept it.
+    #[topic]
+    pub new_admin: Address,
+}
+
+/// Emitted when the admin migrates instance storage to the current schema.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaMigrated {
+    /// Admin that authorized the migration.
+    pub admin: Address,
+    /// Schema version the deployment ran before the migration.
+    pub from_version: u32,
+    /// Schema version the deployment now reports.
+    pub to_version: u32,
+}

@@ -1,7 +1,7 @@
 use soroban_sdk::{contracttype, Address, Env};
 
 use crate::errors::Error;
-use crate::types::{Lease, Service};
+use crate::types::{Lease, PendingAdmin, Service};
 use crate::SETTLE_GRACE_PERIOD_SECS;
 
 /// Expected Stellar ledger close time, used to translate lease durations into
@@ -29,6 +29,12 @@ pub enum DataKey {
     Service(u64),
     /// `Lease` by id (persistent storage).
     Lease(u64),
+    /// Version of the storage layout this deployment is running (instance
+    /// storage). Missing on deployments created before schema versioning
+    /// existed, which is treated as schema `0`.
+    SchemaVersion,
+    /// Outstanding admin handover proposal (instance storage).
+    PendingAdmin,
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +51,38 @@ pub fn set_admin(env: &Env, admin: &Address) {
 
 pub fn get_admin(env: &Env) -> Option<Address> {
     env.storage().instance().get(&DataKey::Admin)
+}
+
+// ---------------------------------------------------------------------------
+// Storage schema version
+// ---------------------------------------------------------------------------
+
+pub fn set_schema_version(env: &Env, version: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::SchemaVersion, &version);
+}
+
+pub fn get_schema_version(env: &Env) -> Option<u32> {
+    env.storage().instance().get(&DataKey::SchemaVersion)
+}
+
+// ---------------------------------------------------------------------------
+// Admin transfer
+// ---------------------------------------------------------------------------
+
+pub fn set_pending_admin(env: &Env, pending: &PendingAdmin) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingAdmin, pending);
+}
+
+pub fn get_pending_admin(env: &Env) -> Option<PendingAdmin> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+pub fn clear_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
 }
 
 pub fn set_token(env: &Env, token: &Address) {
